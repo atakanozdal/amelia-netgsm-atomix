@@ -1,83 +1,85 @@
-Amelia randevu eklentisindeki randevu oluşturma / değiştirme / iptal işlemlerini WordPress Hook’larıyla algılayarak, Netgsm REST v2 API üzerinden otomatik SMS gönderir.
-Ekstra servis gerekmez — tamamen WordPress içinde çalışır.
+# Amelia → Netgsm SMS (Hook Version)
+**Developer:** Atakan Özdal  
+**License:** MIT  
+**Requires:** WordPress 5.4+, PHP 7.2+  
 
-🇹🇷 Türkçe Kurulum & Kullanım
-Gereksinimler
+Amelia randevu eklentisinde gerçekleşen randevu işlemlerini (oluşturma, iptal, yeniden planlama) otomatik algılar ve Netgsm REST API üzerinden SMS gönderir.
 
-WordPress 5.4+
+---
 
-PHP 7.2+
+## 🇹🇷 Özellikler
+✅ Amelia Webhook gerekmez  
+✅ Hook tabanlı direkt tetikleme  
+✅ Netgsm REST v2 desteği  
+✅ Hızlı test aracı  
+✅ UTF-8 / TR mesaj desteği  
+✅ Debug log kayıtları
 
-Amelia (herhangi bir sürüm — webhook gerekmez)
+---
 
-Netgsm Web Servis API yetkisi
+## 🔧 Kurulum (TR)
 
-Kurulum Adımları
+1. ZIP dosyasını yükleyin  
+   *Eklentiler → Yeni Ekle → Eklenti Yükle → Etkinleştir*
+2. Yönetim panelinde açın:
 
-1️⃣ Eklentiyi ZIP formatında yükleyin:
-🛠 amelia-netgsm-atomix.zip → Eklentiler → Yeni Ekle → Yükle → Etkinleştir
+Ayarlar → Amelia → Netgsm SMS
 
-2️⃣ Yönetim panelinden gidin:
-⚙️ Ayarlar → Amelia → Netgsm SMS
+3. Netgsm bilgilerinizi girin
+4. “Hızlı Test” ile doğrulayın ✅
 
-3️⃣ Netgsm bilgilerini girin
+> ⚠️ Mesaj başlığı (Msgheader) Netgsm panelinde  
+**“Web Servis’te kullanım: AÇIK”** olmalı.
 
-Usercode
+---
 
-Password (API şifresi)
+## 🧩 Nasıl Çalışır?
+- Amelia event → Hook tetikler  
+- Telefon no alınır → Sms hazırlanır → Netgsm’e gönderilir  
+- Başarısız gönderimler `debug.log` içine yazılır
 
-Msgheader (Web Servis’te kullanım AÇIK olmalı)
+Log yolu:
 
-Encoding seçin (TR önerilir)
+/wp-content/debug.log
 
-4️⃣ ✅ "Hızlı Test" ile SMS göndererek doğrulayın
 
-Nasıl Çalışır?
+---
 
-Amelia randevu olayları → Hook → Telefon no → Netgsm’e gönderim
+## 🧱 Cache / Güvenlik Ayarı
+Cache eklentilerinde aşağıyı hariç tut:
 
-Türkçe mesaj şablonları otomatik doldurulur
-
-Başarısız olursa log’a yazılır
-
-debug.log → /wp-content/debug.log
-
-Cache / Firewall Ayarı
-
-Cache varsa güvenlik için istisna ekle:
 
 /wp-admin/admin-ajax.php
 
 
-Firewall:
-api.netgsm.com.tr adresine 443 çıkış izni olmalı
+Firewall’a izin:
 
-🇬🇧 English — Installation & Usage
-Requirements
+api.netgsm.com.tr : 443
 
-WordPress 5.4+
 
-PHP 7.2+
+---
 
-Amelia installed
+## 🇬🇧 English Quick Guide
 
-Netgsm REST credentials
+### Install
+1. Upload ZIP → Activate
+2. Panel:
+Settings → Amelia → Netgsm SMS
 
-Setup
+3. Enter Netgsm credentials
+4. “Quick Test” → SMS must arrive ✅
 
-Upload & activate plugin
+---
 
-Open: Settings → Amelia → Netgsm SMS
+## 📌 Changelog
+| Version | Notes |
+|--------|------|
+| 1.0.0 | First release: Hook-based SMS |
+| 1.1.0 | Debug improvements |
+| 1.2.0 | XML fallback + error handling |
 
-Fill Netgsm credentials
+---
 
-Use Quick Test to verify SMS sending
-
-Changelog
-Version	Notes
-1.0.0	İlk sürüm — Hook tabanlı SMS, admin paneli, test aracı
-1.1.0	Debug geliştirme
-1.2.0	XML fallback, hata iyileştirme
-License
-
+## 📄 License
 MIT — © 2025 Atakan Özdal
+
