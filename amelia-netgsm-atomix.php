@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Amelia → Netgsm SMS by AtomixBilişim
  * Description: Amelia randevu olaylarını dinleyip Netgsm REST API ile otomatik SMS gönderimi yapar. Kurulum için Amelia Webhook ayarları gereklidir.
- * Version: 1.0.0
+ * Version: 1.0.1
  * Author: Atakan Özdal (AtomixBilişim)
  * Text Domain: amelia-netgsm-atomix
  */
@@ -32,15 +32,30 @@ function amelia_netgsm_update($arr) {
 }
 
 /**
- * Token Oluşturma
+ * Token yoksa üretir ve kaydeder. Güncel token'ı döner.
  */
-register_activation_hook(__FILE__, function() {
+function amelia_netgsm_ensure_token() {
     $s = amelia_netgsm_get();
     if (empty($s['token'])) {
         $s['token'] = wp_generate_password(24, false, false);
         update_option(AMELIA_NETGSM_OPT, $s);
     }
-});
+    return (string)$s['token'];
+}
+
+/**
+ * Token Oluşturma
+ */
+register_activation_hook(__FILE__, 'amelia_netgsm_ensure_token');
+
+/**
+ * Token kontrolü: kayıtlı token boşsa her istek reddedilir.
+ */
+function amelia_netgsm_token_ok($stored, $given) {
+    if (!is_string($stored) || $stored === '') return false;
+    if (!is_string($given) || $given === '') return false;
+    return hash_equals($stored, $given);
+}
 
 /**
  * Telefon normalize
@@ -50,6 +65,68 @@ function amelia_netgsm_phone($raw) {
     if (strlen($d) === 11 && $d[0] === '0') $d = '90'.substr($d,1);
     if (strlen($d) === 10) $d = '90'.$d;
     return $d;
+}
+
+/**
+ * Dizide "a.b.0.c" biçimindeki yollardan ilk dolu metni döner.
+ */
+function amelia_netgsm_pick($arr, $paths) {
+    foreach ($paths as $path) {
+        $v = $arr;
+        foreach (explode('.', $path) as $k) {
+            if (is_array($v) && array_key_exists($k, $v)) { $v = $v[$k]; } else { $v = null; break; }
+        }
+        if (is_scalar($v) && trim((string)$v) !== '') return trim((string)$v);
+    }
+    return '';
+}
+
+/**
+ * Olay adını sadeleştirir: bookingCanceled, booking_canceled, canceled → canceled
+ */
+function amelia_netgsm_event($evt) {
+    $e = strtolower(preg_replace('/([a-z])([A-Z])/', '$1_$2', trim((string)$evt)));
+    $e = preg_replace('/^(booking|appointment)_/', '', $e);
+    $map = [
+        'added' => 'added', 'created' => 'added',
+        'canceled' => 'canceled', 'cancelled' => 'canceled',
+        'rescheduled' => 'rescheduled', 'time_updated' => 'rescheduled',
+        'status_updated' => 'status', 'status' => 'status',
+    ];
+    return isset($map[$e]) ? $map[$e] : '';
+}
+
+/**
+ * Olaya ve duruma göre SMS metni
+ */
+function amelia_netgsm_message($evt, $name, $service, $date, $time, $status) {
+    $name = $name !== '' ? $name : 'Müşterimiz';
+    $when = trim($date . ' ' . $time);
+    $what = trim(($when !== '' ? $when . ' tarihli ' : '') . $service . ' randevunuz');
+    $status = strtolower($status);
+    $evt = amelia_netgsm_event($evt);
+
+    if ($evt === 'added') {
+        $msg = "Sayın $name, $what oluşturulmuştur.";
+    } elseif ($evt === 'canceled') {
+        $msg = "Sayın $name, $what iptal edilmiştir.";
+    } elseif ($evt === 'rescheduled') {
+        $svc = trim($service . ' randevunuz');
+        $msg = $when !== '' ? "Sayın $name, $svc $when olarak güncellenmiştir." : "Sayın $name, $svc güncellenmiştir.";
+    } elseif ($status === 'approved') {
+        $msg = "Sayın $name, $what onaylanmıştır.";
+    } elseif ($status === 'pending') {
+        $msg = "Sayın $name, $what onay beklemektedir.";
+    } elseif ($status === 'canceled' || $status === 'cancelled') {
+        $msg = "Sayın $name, $what iptal edilmiştir.";
+    } elseif ($status === 'rejected') {
+        $msg = "Sayın $name, $what reddedilmiştir.";
+    } elseif ($evt === 'status') {
+        $msg = "Sayın $name, $what için durum güncellenmiştir.";
+    } else {
+        $msg = "Sayın $name, $what hakkında bilgilendirmedir.";
+    }
+    return trim(preg_replace('/\s+/', ' ', $msg));
 }
 
 /**
@@ -78,7 +155,7 @@ function amelia_netgsm_send_sms($phone90, $msg) {
 
     if (is_wp_error($r)) return false;
 
-    $code = wp_remote_retrieve_response_code($r);
+    $code = (int)wp_remote_retrieve_response_code($r);
     $body = wp_remote_retrieve_body($r);
     $json = json_decode($body, true);
 
@@ -95,23 +172,36 @@ add_action('rest_api_init', function () {
         'callback' => function(WP_REST_Request $req) {
 
             $s = amelia_netgsm_get();
-            if ($req->get_param('token') !== $s['token']) {
+            if (!amelia_netgsm_token_ok($s['token'], $req->get_param('token'))) {
                 return new WP_REST_Response(['ok'=>false,'error'=>'forbidden'],403);
             }
 
             $body = json_decode($req->get_body(), true);
             if (!is_array($body)) return new WP_REST_Response(['ok'=>false],400);
 
-            $phone = $body['customer']['phone'] ?? '';
+            // Eski düz yollar önce, sonra Amelia'nın gerçek yapısı (appointment.bookings[0].customer)
+            $phone = amelia_netgsm_pick($body, ['customer.phone', 'appointment.bookings.0.customer.phone', 'bookings.0.customer.phone']);
             $phone = amelia_netgsm_phone($phone);
             if (!$phone) return new WP_REST_Response(['ok'=>false,'error'=>'no-phone'],400);
 
-            $name = trim(($body['customer']['firstName'] ?? '') . ' ' . ($body['customer']['lastName'] ?? ''));
-            $service = $body['appointment']['service']['name'] ?? '';
-            $date = $body['appointment']['date'] ?? '';
-            $time = $body['appointment']['time'] ?? '';
+            $first = amelia_netgsm_pick($body, ['customer.firstName', 'appointment.bookings.0.customer.firstName', 'bookings.0.customer.firstName']);
+            $last  = amelia_netgsm_pick($body, ['customer.lastName', 'appointment.bookings.0.customer.lastName', 'bookings.0.customer.lastName']);
+            $name = trim($first . ' ' . $last);
+            $service = amelia_netgsm_pick($body, ['appointment.service.name', 'service.name']);
+            $date = amelia_netgsm_pick($body, ['appointment.date']);
+            $time = amelia_netgsm_pick($body, ['appointment.time']);
+            $start = amelia_netgsm_pick($body, ['appointment.bookingStart', 'bookingStart']);
+            if ($start !== '' && preg_match('/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/', $start, $m)) {
+                if ($date === '') $date = $m[1];
+                if ($time === '') $time = $m[2];
+            }
+            $status = amelia_netgsm_pick($body, ['appointment.status', 'appointment.bookings.0.status', 'status']);
 
-            $msg = "Sayın $name, $service randevunuz $date $time tarihinde onaylanmıştır.";
+            $evt = $req->get_param('evt');
+            if (!is_string($evt) || $evt === '') $evt = isset($body['evt']) && is_string($body['evt']) ? $body['evt'] : '';
+            $evt = sanitize_text_field($evt);
+
+            $msg = amelia_netgsm_message($evt, $name, $service, $date, $time, $status);
 
             $ok = amelia_netgsm_send_sms($phone, $msg);
 
@@ -136,21 +226,23 @@ add_action('admin_menu', function () {
 function amelia_netgsm_admin() {
     if (!current_user_can('manage_options')) return;
 
+    amelia_netgsm_ensure_token();
     $s = amelia_netgsm_get();
     $updated = false;
 
     if (isset($_POST['save']) && check_admin_referer('amelia_netgsm_save')) {
-        $s = [
-            'usercode'  => sanitize_text_field($_POST['usercode']),
-            'password'  => sanitize_text_field($_POST['password']),
-            'msgheader' => sanitize_text_field($_POST['msgheader']),
-            'token'     => $s['token']
+        $new = [
+            'usercode'  => isset($_POST['usercode']) ? sanitize_text_field(wp_unslash($_POST['usercode'])) : '',
+            'msgheader' => isset($_POST['msgheader']) ? sanitize_text_field(wp_unslash($_POST['msgheader'])) : '',
         ];
-        amelia_netgsm_update($s);
+        $password = isset($_POST['password']) ? trim((string)wp_unslash($_POST['password'])) : '';
+        if ($password !== '') $new['password'] = $password; // boş gelirse kayıtlı şifre korunur
+        amelia_netgsm_update($new);
+        $s = amelia_netgsm_get();
         $updated = true;
     }
 
-    $url = site_url('/wp-json/amelia-netgsm/v1/hook?token='.$s['token']);
+    $url = add_query_arg('token', rawurlencode($s['token']), rest_url('amelia-netgsm/v1/hook'));
 
     ?>
     <div class="wrap">
@@ -159,13 +251,14 @@ function amelia_netgsm_admin() {
 
         <h3>Webhook URL</h3>
         <code><?php echo esc_html($url); ?></code>
+        <p class="description">Olaya göre mesaj için adrese <code>&amp;evt=booking_added</code>, <code>booking_canceled</code>, <code>booking_rescheduled</code> ya da <code>booking_status_updated</code> ekleyin.</p>
 
         <h3>Netgsm Ayarları</h3>
         <form method="post">
             <?php wp_nonce_field('amelia_netgsm_save'); ?>
             <table class="form-table">
                 <tr><th>Usercode</th><td><input type="text" name="usercode" value="<?php echo esc_attr($s['usercode']); ?>"></td></tr>
-                <tr><th>Password</th><td><input type="text" name="password" value="<?php echo esc_attr($s['password']); ?>"></td></tr>
+                <tr><th>Password</th><td><input type="password" name="password" autocomplete="new-password" value="" placeholder="<?php echo $s['password'] !== '' ? esc_attr('(kayıtlı)') : ''; ?>"></td></tr>
                 <tr><th>Msgheader</th><td><input type="text" name="msgheader" value="<?php echo esc_attr($s['msgheader']); ?>"></td></tr>
             </table>
             <button class="button button-primary" name="save">Kaydet</button>
