@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "amelia-netgsm-atomix: Netgsm SMS integration for the Amelia booking plugin"
+type: software
+authors:
+  - family-names: "Özdal"
+    given-names: "Atakan"
+    orcid: "https://orcid.org/0009-0008-1045-5486"
+    affiliation: "atomiXbilişim"
+version: 1.0.1
+date-released: 2026-11-23
+license: MIT
+repository-code: "https://github.com/atakanozdal/amelia-netgsm-atomix"
+keywords:
+  - wordpress
+  - sms
+  - netgsm
+abstract: "WordPress plugin that sends appointment SMS messages for the Amelia booking plugin through Netgsm, with messages chosen by booking event."
