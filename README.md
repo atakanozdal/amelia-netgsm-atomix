@@ -1,5 +1,7 @@
 # Amelia → Netgsm SMS by AtomixBilişim
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24462815.svg)](https://doi.org/10.5281/zenodo.24462815)
+
 [English](#english) · [Türkçe](#türkçe)
 
 ## English
